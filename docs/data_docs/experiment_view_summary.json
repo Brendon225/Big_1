@@ -1,0 +1,66 @@
+{
+  "ChemProtSent": {
+    "train": {
+      "records": 18608,
+      "positive": 4117,
+      "negative": 14491,
+      "total_gold_positive_relations": 4157,
+      "same_sentence_gold_positive_relations": 4127,
+      "same_sentence_gold_ratio": 0.9928,
+      "total_entities": 25752,
+      "skipped_cross_sentence_entities": 11,
+      "output_file": "D:\\Desktop_D\\postgraduate\\研二\\big\\big_1\\data\\experiment_views\\processed\\ChemProtSent_train.json"
+    },
+    "dev": {
+      "records": 11454,
+      "positive": 2408,
+      "negative": 9046,
+      "total_gold_positive_relations": 2416,
+      "same_sentence_gold_positive_relations": 2412,
+      "same_sentence_gold_ratio": 0.9983,
+      "total_entities": 15567,
+      "skipped_cross_sentence_entities": 12,
+      "output_file": "D:\\Desktop_D\\postgraduate\\研二\\big\\big_1\\data\\experiment_views\\processed\\ChemProtSent_dev.json"
+    },
+    "test": {
+      "records": 16055,
+      "positive": 3433,
+      "negative": 12622,
+      "total_gold_positive_relations": 3458,
+      "same_sentence_gold_positive_relations": 3447,
+      "same_sentence_gold_ratio": 0.9968,
+      "total_entities": 20828,
+      "skipped_cross_sentence_entities": 18,
+      "output_file": "D:\\Desktop_D\\postgraduate\\研二\\big\\big_1\\data\\experiment_views\\processed\\ChemProtSent_test.json"
+    }
+  },
+  "CDRIntra": {
+    "train": {
+      "records": 4844,
+      "positive": 1826,
+      "negative": 3018,
+      "doc_level_gold_relations": 1038,
+      "doc_relations_with_same_sentence_support": 757,
+      "same_sentence_support_ratio": 0.7293,
+      "output_file": "D:\\Desktop_D\\postgraduate\\研二\\big\\big_1\\data\\experiment_views\\processed\\CDRIntra_train.json"
+    },
+    "dev": {
+      "records": 5206,
+      "positive": 1960,
+      "negative": 3246,
+      "doc_level_gold_relations": 1012,
+      "doc_relations_with_same_sentence_support": 764,
+      "same_sentence_support_ratio": 0.7549,
+      "output_file": "D:\\Desktop_D\\postgraduate\\研二\\big\\big_1\\data\\experiment_views\\processed\\CDRIntra_dev.json"
+    },
+    "test": {
+      "records": 5155,
+      "positive": 1906,
+      "negative": 3249,
+      "doc_level_gold_relations": 1066,
+      "doc_relations_with_same_sentence_support": 745,
+      "same_sentence_support_ratio": 0.6989,
+      "output_file": "D:\\Desktop_D\\postgraduate\\研二\\big\\big_1\\data\\experiment_views\\processed\\CDRIntra_test.json"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+# 1. 虚拟环境 / 依赖包 (极其庞大，绝对不能 Git)
+venv/
+env/
+venv_scispacy/
+.env/
+__pycache__/
+node_modules/
+
+# 2. 实验数据集 (几十MB以上的千万别传)
+data/
+*.csv
+*.tsv
+*.dat
+*.hdf5
+*.pt
+*.pth
+
+# 3. IDE 配置文件 / 缓存
+.vscode/
+.idea/
+.DS_Store
+.claude/
+
+# 4. 实验生成的日志、图片、模型输出
+logs/
+checkpoints/
+*.log
+*.png
