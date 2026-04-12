@@ -26,3 +26,8 @@ logs/
 checkpoints/
 *.log
 *.png
+
+# 5. 本地预训练模型 / Hugging Face 本地下载目录
+models/*
+*.safetensors
+!models/.gitkeep

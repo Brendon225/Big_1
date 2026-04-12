@@ -15,10 +15,13 @@ sys.path.insert(0, str(ROOT))
 
 from src.data.dataset import (  # noqa: E402
     BioREDataset,
+    entity_centered_truncate,
+)
+from src.builders.input_builder import (  # noqa: E402
     build_input_text,
     build_target_text,
-    entity_centered_truncate,
     linearize_dependency_arcs,
+    linearize_shortest_dependency_path,
 )
 
 
@@ -126,7 +129,11 @@ print(f"  OK  with dep:   {inp_dep}")
 print("=" * 60)
 print("Test 3: build_target_text")
 tgt = build_target_text("Aspirin", "COX-2", "CPR:4")
-assert tgt == "The relation between Aspirin and COX-2 is CPR:4."
+assert tgt == "CPR:4"
+nl_tgt = build_target_text(
+    "Aspirin", "COX-2", "CPR:4", target_mode="natural_language"
+)
+assert nl_tgt == "The relation between Aspirin and COX-2 is CPR:4."
 print(f"  OK  target: {tgt}")
 
 print("=" * 60)
@@ -142,6 +149,19 @@ assert "ROOT" not in dep_seq
 print(f"  OK  dep_seq: {dep_seq}")
 
 print("=" * 60)
+print("Test 4b: linearize_shortest_dependency_path")
+sdp_seq = linearize_shortest_dependency_path(
+    tokens=["Aspirin", "inhibits", "COX-2", "."],
+    heads=[1, 1, 1, 1],
+    labels=["nsubj", "ROOT", "obj", "punct"],
+    source_idx=0,
+    target_idx=2,
+)
+assert "Aspirin<-inhibits:nsubj" in sdp_seq
+assert "inhibits->COX-2:obj" in sdp_seq
+print(f"  OK  sdp_seq: {sdp_seq}")
+
+print("=" * 60)
 print("Test 5: BioREDataset CDR_train (text-only)")
 ds = BioREDataset(f"{BASE}/CDR_train.json", use_dep=False, max_src_len=512)
 assert len(ds) == 1037, f"expected 1037, got {len(ds)}"
@@ -149,7 +169,7 @@ s0 = ds[0]
 assert "input_text" in s0 and "target_text" in s0
 assert "[E1S]" in s0["input_text"]
 assert "[DEP]" not in s0["input_text"]
-assert " is CID." in s0["target_text"]
+assert s0["target_text"] == "CID"
 print(f"  OK  n={len(ds)}  sample input:  {s0['input_text'][:80]}...")
 print(f"             sample target: {s0['target_text']}")
 ds.close()
