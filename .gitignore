@@ -7,7 +7,11 @@ __pycache__/
 node_modules/
 
 # 2. 实验数据集 (几十MB以上的千万别传)
-data/
+data/raw
+data/processed
+data/parsed
+data/experiment_views
+data/coarsened
 *.csv
 *.tsv
 *.dat
