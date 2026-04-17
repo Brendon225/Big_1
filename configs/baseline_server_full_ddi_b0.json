@@ -1,0 +1,25 @@
+{
+  "dataset_name": "DDI",
+  "model_name": "models/biobart-base",
+  "model_dtype": "float32",
+  "prediction_mode": "label_rerank",
+  "target_mode": "relation_only",
+  "use_dep": false,
+  "dep_view": "raw",
+  "dep_form": "none",
+  "seed": 42,
+  "use_cuda": true,
+  "train_file": "data/coarsened/DDI_train.json",
+  "dev_file": "data/coarsened/DDI_dev.json",
+  "batch_size": 2,
+  "eval_batch_size": 2,
+  "epochs": 1,
+  "max_src_len": 256,
+  "max_input_len": 512,
+  "max_target_len": 16,
+  "max_new_tokens": 8,
+  "lr": 2e-5,
+  "num_workers": 0,
+  "output_dir": "checkpoints/full_b0_ddi_seed42"
+}
+
