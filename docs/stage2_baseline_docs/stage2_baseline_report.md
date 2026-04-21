@@ -161,7 +161,7 @@ DDI 由于文件更大，在实验室 GPU 服务器上完成：
 
 最终总表见：
 
-- [stage2_baseline_final_results_table.md](/d:/Desktop_D/postgraduate/研二/big/big_1/docs/baseline_docs/stage2_baseline_final_results_table.md)
+- [结果总表](./stage2_baseline_final_results_table.md)
 
 ### 4.2 关键结果摘要
 
