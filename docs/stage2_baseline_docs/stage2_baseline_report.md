@@ -219,4 +219,3 @@ DDI 由于文件更大，在实验室 GPU 服务器上完成：
 1. 本阶段统一使用的是 `prediction_mode=label_rerank`，适合阶段二结构注入对比与工程闭环验证。
 2. 论文终稿若需严格的 `Micro-F1 / Macro-F1 / Precision / Recall` 指标，应在后续评估阶段补充统一计算脚本。
 3. `docs/record/2baseline_record.md` 是个人日志，本报告未对其写入。
-
