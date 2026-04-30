@@ -12,7 +12,7 @@ import random
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -234,6 +234,51 @@ def predict_labels_by_rerank(
     return [candidate_labels[int(i)] for i in best_indices]
 
 
+def _is_better(
+    current: float,
+    best: Optional[float],
+    greater_is_better: bool,
+    min_delta: float,
+) -> bool:
+    """Return whether current metric improves over the best seen value."""
+    if best is None:
+        return True
+    if greater_is_better:
+        return current > best + min_delta
+    return current < best - min_delta
+
+
+def _save_json(payload: Dict | List[Dict], path: Path) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def save_stage3_checkpoint(
+    model: B345Model,
+    generator_tokenizer,
+    output_dir: Path,
+    ckpt_name: str,
+    metrics: Dict,
+    run_meta: Dict,
+) -> None:
+    """
+    Save a complete Stage-3 checkpoint.
+
+    `generator.save_pretrained` keeps HuggingFace compatibility for the
+    BioBART submodule; `stage3_model_state.pt` preserves the added semantic,
+    syntax, and projection parameters.
+    """
+    ckpt_dir = output_dir / ckpt_name
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    model.generator.save_pretrained(ckpt_dir)
+    generator_tokenizer.save_pretrained(ckpt_dir)
+    torch.save(model.state_dict(), ckpt_dir / "stage3_model_state.pt")
+    _save_json(metrics, ckpt_dir / "metrics.json")
+    _save_json(run_meta, ckpt_dir / "run_meta.json")
+
+
 def run_experiment(cfg: Dict) -> Dict:
     seed = int(cfg.get("seed", 42))
     set_seed(seed)
@@ -322,7 +367,36 @@ def run_experiment(cfg: Dict) -> Dict:
     if prediction_mode != "label_rerank":
         raise ValueError("Stage-3 B345 trainer currently supports prediction_mode=label_rerank only.")
 
+    output_dir = Path(cfg["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_meta = {
+        "model_type": cfg["model_type"],
+        "dataset_name": cfg.get("dataset_name", ""),
+        "seed": seed,
+        "biobart_path": cfg["biobart_path"],
+        "pubmedbert_path": cfg["pubmedbert_path"],
+        "prediction_mode": prediction_mode,
+        "metric_for_best": str(cfg.get("metric_for_best", "mapped_exact")),
+        "greater_is_better": bool(cfg.get("greater_is_better", True)),
+    }
+
+    metric_for_best = str(cfg.get("metric_for_best", "mapped_exact"))
+    greater_is_better = bool(cfg.get("greater_is_better", True))
+    min_delta = float(cfg.get("early_stopping_min_delta", 0.0))
+    patience_value = cfg.get("early_stopping_patience")
+    early_stopping_patience = (
+        int(patience_value) if patience_value is not None else None
+    )
+    save_best_model = bool(cfg.get("save_best_model", True))
+    save_final_model = bool(cfg.get("save_final_model", True))
+
     last_metrics: Dict = {}
+    best_metrics: Dict = {}
+    best_metric_value: Optional[float] = None
+    epochs_without_improvement = 0
+    metrics_history: List[Dict] = []
+
     for epoch in range(1, epochs + 1):
         model.train()
         train_loss_sum = 0.0
@@ -430,28 +504,68 @@ def run_experiment(cfg: Dict) -> Dict:
             "mapped_invalid_rate": mapped_invalid_rate,
         }
 
-    output_dir = Path(cfg["output_dir"])
-    output_dir.mkdir(parents=True, exist_ok=True)
-    model_dir = output_dir / "model"
-    model_dir.mkdir(parents=True, exist_ok=True)
-    model.generator.save_pretrained(model_dir)
-    generator_tokenizer.save_pretrained(model_dir)
+        if metric_for_best not in last_metrics:
+            raise ValueError(
+                f"metric_for_best={metric_for_best!r} is not available in metrics."
+            )
 
-    run_meta = {
-        "model_type": cfg["model_type"],
-        "dataset_name": cfg.get("dataset_name", ""),
-        "seed": seed,
-        "biobart_path": cfg["biobart_path"],
-        "pubmedbert_path": cfg["pubmedbert_path"],
-        "prediction_mode": prediction_mode,
-    }
-    (output_dir / "run_meta.json").write_text(
-        json.dumps(run_meta, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (output_dir / "metrics.json").write_text(
-        json.dumps(last_metrics, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+        current_metric = float(last_metrics[metric_for_best])
+        improved = _is_better(
+            current=current_metric,
+            best=best_metric_value,
+            greater_is_better=greater_is_better,
+            min_delta=min_delta,
+        )
+        history_row = dict(last_metrics)
+        history_row["is_best"] = bool(improved)
+        metrics_history.append(history_row)
+        _save_json(metrics_history, output_dir / "metrics_history.json")
+
+        if improved:
+            best_metric_value = current_metric
+            best_metrics = dict(last_metrics)
+            epochs_without_improvement = 0
+            _save_json(best_metrics, output_dir / "best_metrics.json")
+            if save_best_model:
+                save_stage3_checkpoint(
+                    model=model,
+                    generator_tokenizer=generator_tokenizer,
+                    output_dir=output_dir,
+                    ckpt_name="best_model",
+                    metrics=best_metrics,
+                    run_meta=run_meta,
+                )
+                checkpoint_note = " checkpoint=best_model"
+            else:
+                checkpoint_note = ""
+            print(
+                f"[Epoch {epoch}] best_{metric_for_best}="
+                f"{current_metric:.6f}{checkpoint_note}"
+            )
+        else:
+            epochs_without_improvement += 1
+
+        if (
+            early_stopping_patience is not None
+            and epochs_without_improvement >= early_stopping_patience
+        ):
+            print(
+                f"[EarlyStop] no {metric_for_best} improvement for "
+                f"{epochs_without_improvement} epochs"
+            )
+            break
+
+    model_dir = output_dir / "model"
+    if save_final_model:
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model.generator.save_pretrained(model_dir)
+        generator_tokenizer.save_pretrained(model_dir)
+        torch.save(model.state_dict(), model_dir / "stage3_model_state.pt")
+    else:
+        print("[Run] final model save skipped by config")
+    _save_json(run_meta, output_dir / "run_meta.json")
+    _save_json(last_metrics, output_dir / "metrics.json")
+    if best_metrics:
+        _save_json(best_metrics, output_dir / "best_metrics.json")
     print(f"[Run] checkpoint saved to: {output_dir}")
     return last_metrics
