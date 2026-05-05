@@ -135,16 +135,28 @@ class SyntaxView(nn.Module):
         batch_size, node_count, _ = h_syn.shape
 
         dep_ids = dep_type_ids.clamp(min=0, max=self.dep_type_embedding.num_embeddings - 1)
-        dep_emb = self.dep_type_embedding(dep_ids)  # [B, N, N, D_dep]
-
-        h_i = h_syn.unsqueeze(2).expand(batch_size, node_count, node_count, self.hidden_dim)
-        h_j = h_syn.unsqueeze(1).expand(batch_size, node_count, node_count, self.hidden_dim)
-        arc_feat = torch.cat([h_i, h_j, dep_emb], dim=-1)
-        arc_logits = self.arc_mlp(arc_feat).squeeze(-1)
-        arc_scores = torch.sigmoid(arc_logits)
-
         arc_mask = (adj_matrix > 0) & node_mask.unsqueeze(1) & node_mask.unsqueeze(2)
-        arc_scores = arc_scores * arc_mask.to(arc_scores.dtype)
+        arc_scores = h_syn.new_zeros((batch_size, node_count, node_count))
+
+        for batch_idx in range(batch_size):
+            edge_index = arc_mask[batch_idx].nonzero(as_tuple=False)
+            if edge_index.numel() == 0:
+                continue
+
+            src_idx = edge_index[:, 0]
+            dst_idx = edge_index[:, 1]
+            dep_emb = self.dep_type_embedding(dep_ids[batch_idx, src_idx, dst_idx])
+            arc_feat = torch.cat(
+                [
+                    h_syn[batch_idx, src_idx],
+                    h_syn[batch_idx, dst_idx],
+                    dep_emb,
+                ],
+                dim=-1,
+            )
+            arc_scores[batch_idx, src_idx, dst_idx] = torch.sigmoid(
+                self.arc_mlp(arc_feat).squeeze(-1)
+            )
         return arc_scores
 
     def forward(
