@@ -8,12 +8,12 @@ statistics. The seq2seq generator is wired in `ea_gmib.py`.
 
 from __future__ import annotations
 
-from typing import Dict, Literal
+from typing import Dict, Literal, Optional
 
 import torch
 import torch.nn as nn
 
-CompressionLossType = Literal["l1", "expected_l0", "entropy", "none"]
+CompressionLossType = Literal["l1", "expected_l0", "entropy", "target_ratio", "none"]
 
 
 class GMIB(nn.Module):
@@ -31,6 +31,8 @@ class GMIB(nn.Module):
         tau_anneal_rate: float = 0.95,
         selection_threshold: float = 0.5,
         compression_loss_type: CompressionLossType = "l1",
+        target_compression_ratio: Optional[float] = None,
+        target_ratio_loss_weight: float = 1.0,
     ) -> None:
         super().__init__()
         if fused_dim <= 0:
@@ -41,8 +43,12 @@ class GMIB(nn.Module):
             raise ValueError("tau_anneal_rate must be in (0, 1].")
         if not 0.0 <= selection_threshold <= 1.0:
             raise ValueError("selection_threshold must be in [0, 1].")
-        if compression_loss_type not in {"l1", "expected_l0", "entropy", "none"}:
+        if compression_loss_type not in {"l1", "expected_l0", "entropy", "target_ratio", "none"}:
             raise ValueError(f"Unsupported compression_loss_type={compression_loss_type!r}")
+        if target_compression_ratio is not None and not 0.0 <= target_compression_ratio <= 1.0:
+            raise ValueError("target_compression_ratio must be in [0, 1].")
+        if target_ratio_loss_weight < 0.0:
+            raise ValueError("target_ratio_loss_weight must be non-negative.")
 
         self.syntax_dim = int(syntax_dim)
         self.semantic_dim = int(semantic_dim)
@@ -51,6 +57,12 @@ class GMIB(nn.Module):
         self.tau_anneal_rate = float(tau_anneal_rate)
         self.selection_threshold = float(selection_threshold)
         self.compression_loss_type = compression_loss_type
+        self.target_compression_ratio = (
+            float(target_compression_ratio)
+            if target_compression_ratio is not None
+            else None
+        )
+        self.target_ratio_loss_weight = float(target_ratio_loss_weight)
 
         self.syntax_proj = nn.Linear(self.syntax_dim, self.fused_dim)
         self.semantic_proj = nn.Linear(self.semantic_dim, self.fused_dim)
@@ -108,7 +120,7 @@ class GMIB(nn.Module):
         return fused * node_mask.unsqueeze(-1).to(fused.dtype)
 
     def _compression_loss(self, edge_probs: torch.Tensor) -> torch.Tensor:
-        if self.compression_loss_type == "none":
+        if self.compression_loss_type in {"none", "target_ratio"}:
             return edge_probs.new_zeros(())
         if self.compression_loss_type in {"l1", "expected_l0"}:
             return edge_probs.mean()
@@ -117,6 +129,12 @@ class GMIB(nn.Module):
         probs = edge_probs.clamp(min=eps, max=1.0 - eps)
         entropy = -probs * torch.log(probs) - (1.0 - probs) * torch.log1p(-probs)
         return entropy.mean()
+
+    def _target_ratio_loss(self, edge_probs: torch.Tensor) -> torch.Tensor:
+        if self.target_compression_ratio is None:
+            return edge_probs.new_zeros(())
+        target = edge_probs.new_tensor(self.target_compression_ratio)
+        return (edge_probs.mean() - target).pow(2)
 
     def forward(
         self,
@@ -175,11 +193,20 @@ class GMIB(nn.Module):
         if edge_prob_parts:
             edge_probs = torch.cat(edge_prob_parts, dim=0)
             edge_z = torch.cat(edge_z_parts, dim=0)
-            compress_loss = self._compression_loss(edge_probs)
+            base_compress_loss = self._compression_loss(edge_probs)
+            target_ratio_loss = self._target_ratio_loss(edge_probs)
+            compress_loss = (
+                base_compress_loss
+                + self.target_ratio_loss_weight * target_ratio_loss
+            )
+            prob_compression_ratio = edge_probs.mean()
             valid_arc_count = edge_probs.new_tensor(float(edge_probs.numel()))
             retained_arc_count = edge_z.sum()
         else:
+            base_compress_loss = h_syn.new_zeros(())
+            target_ratio_loss = h_syn.new_zeros(())
             compress_loss = h_syn.new_zeros(())
+            prob_compression_ratio = h_syn.new_zeros(())
             valid_arc_count = h_syn.new_zeros(())
             retained_arc_count = h_syn.new_zeros(())
 
@@ -191,6 +218,9 @@ class GMIB(nn.Module):
             "p_ij": p_ij,
             "z_ij": z_ij,
             "compress_loss": compress_loss,
+            "base_compress_loss": base_compress_loss,
+            "target_ratio_loss": target_ratio_loss,
+            "prob_compression_ratio": prob_compression_ratio,
             "avg_retained_arcs": avg_retained_arcs,
             "compression_ratio": compression_ratio,
             "valid_arc_count": valid_arc_count,

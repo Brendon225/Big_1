@@ -37,6 +37,9 @@ class EAGMIBModel(nn.Module):
         tau_anneal_rate: float = 0.95,
         selection_threshold: float = 0.5,
         compression_loss_type: CompressionLossType = "l1",
+        target_compression_ratio: Optional[float] = None,
+        target_ratio_loss_weight: float = 1.0,
+        readout_mode: str = "degree_pool",
         dropout: float = 0.1,
         freeze_pubmedbert: bool = False,
         model_dtype: torch.dtype = torch.float32,
@@ -44,7 +47,13 @@ class EAGMIBModel(nn.Module):
         super().__init__()
         if beta < 0.0:
             raise ValueError("beta must be non-negative.")
+        readout_mode = str(readout_mode).lower()
+        if readout_mode not in {"degree_pool", "selected_message"}:
+            raise ValueError(
+                "readout_mode must be one of {'degree_pool', 'selected_message'}."
+            )
         self.beta = float(beta)
+        self.readout_mode = readout_mode
 
         self.generator = AutoModelForSeq2SeqLM.from_pretrained(
             biobart_path,
@@ -80,7 +89,20 @@ class EAGMIBModel(nn.Module):
             tau_anneal_rate=tau_anneal_rate,
             selection_threshold=selection_threshold,
             compression_loss_type=compression_loss_type,
+            target_compression_ratio=target_compression_ratio,
+            target_ratio_loss_weight=target_ratio_loss_weight,
         )
+        if self.readout_mode == "selected_message":
+            self.selected_message_proj = nn.Linear(
+                self.generator_hidden_size,
+                self.generator_hidden_size,
+            )
+            self.selected_update_norm = nn.LayerNorm(self.generator_hidden_size)
+            self.selected_readout_proj = nn.Linear(
+                self.generator_hidden_size * 4,
+                self.generator_hidden_size,
+            )
+            self.selected_readout_norm = nn.LayerNorm(self.generator_hidden_size)
         self.inject_norm = nn.LayerNorm(self.generator_hidden_size)
         self.inject_dropout = nn.Dropout(dropout)
 
@@ -120,6 +142,53 @@ class EAGMIBModel(nn.Module):
         denom = node_weights.sum(dim=1, keepdim=True).clamp_min(1.0)
         return (h_fused * node_weights.unsqueeze(-1)).sum(dim=1) / denom
 
+    @staticmethod
+    def _gather_node_repr(
+        node_repr: torch.Tensor,
+        node_idx: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size = node_repr.size(0)
+        batch_idx = torch.arange(batch_size, device=node_repr.device)
+        safe_idx = node_idx.clamp(min=0, max=node_repr.size(1) - 1)
+        return node_repr[batch_idx, safe_idx]
+
+    def _pool_selected_message_nodes(
+        self,
+        h_fused: torch.Tensor,
+        z_ij: torch.Tensor,
+        node_mask: torch.Tensor,
+        e1_node_idx: torch.Tensor,
+        e2_node_idx: torch.Tensor,
+    ) -> torch.Tensor:
+        pair_mask = node_mask.unsqueeze(1) & node_mask.unsqueeze(2)
+        selected_adj = z_ij * pair_mask.to(z_ij.dtype)
+        row_sum = selected_adj.sum(dim=-1, keepdim=True)
+        norm_adj = selected_adj / row_sum.clamp_min(1.0)
+
+        messages = torch.bmm(norm_adj, h_fused)
+        has_message = row_sum > 0
+        messages = torch.where(has_message, messages, h_fused)
+        selected_nodes = self.selected_update_norm(
+            h_fused + self.inject_dropout(self.selected_message_proj(messages))
+        )
+        selected_nodes = selected_nodes * node_mask.unsqueeze(-1).to(selected_nodes.dtype)
+
+        node_weights = (selected_adj.sum(dim=1) + selected_adj.sum(dim=2))
+        node_weights = node_weights * node_mask.to(node_weights.dtype)
+        fallback_weights = node_mask.to(node_weights.dtype)
+        has_selected = node_weights.sum(dim=1, keepdim=True) > 0
+        node_weights = torch.where(has_selected, node_weights, fallback_weights)
+        denom = node_weights.sum(dim=1, keepdim=True).clamp_min(1.0)
+        global_pool = (selected_nodes * node_weights.unsqueeze(-1)).sum(dim=1) / denom
+
+        e1_repr = self._gather_node_repr(selected_nodes, e1_node_idx)
+        e2_repr = self._gather_node_repr(selected_nodes, e2_node_idx)
+        pair_feat = torch.cat(
+            [global_pool, e1_repr, e2_repr, (e1_repr - e2_repr).abs()],
+            dim=-1,
+        )
+        return self.selected_readout_norm(self.selected_readout_proj(pair_feat))
+
     def update_temperature(self, tau: float) -> None:
         self.gmib.set_tau(tau)
 
@@ -152,11 +221,20 @@ class EAGMIBModel(nn.Module):
             adj_matrix=batch["adj_matrix"],
             node_mask=batch["node_mask"],
         )
-        selected_pool = self._pool_selected_nodes(
-            h_fused=gmib_out["h_fused"],
-            z_ij=gmib_out["z_ij"],
-            node_mask=batch["node_mask"],
-        )
+        if self.readout_mode == "selected_message":
+            selected_pool = self._pool_selected_message_nodes(
+                h_fused=gmib_out["h_fused"],
+                z_ij=gmib_out["z_ij"],
+                node_mask=batch["node_mask"],
+                e1_node_idx=batch["e1_node_idx"],
+                e2_node_idx=batch["e2_node_idx"],
+            )
+        else:
+            selected_pool = self._pool_selected_nodes(
+                h_fused=gmib_out["h_fused"],
+                z_ij=gmib_out["z_ij"],
+                node_mask=batch["node_mask"],
+            )
         injection_vec = self.inject_dropout(self.inject_norm(selected_pool))
         gmib_out["injection_vec"] = injection_vec
         return gmib_out
@@ -190,6 +268,9 @@ class EAGMIBModel(nn.Module):
             "loss": total_loss,
             "gen_loss": gen_loss,
             "compress_loss": compress_loss,
+            "base_compress_loss": gmib_out["base_compress_loss"],
+            "target_ratio_loss": gmib_out["target_ratio_loss"],
+            "prob_compression_ratio": gmib_out["prob_compression_ratio"],
             "logits": generator_outputs.logits,
             "avg_retained_arcs": gmib_out["avg_retained_arcs"],
             "compression_ratio": gmib_out["compression_ratio"],

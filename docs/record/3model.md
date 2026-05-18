@@ -59,3 +59,51 @@
 1. 加入那个GB-IM模块之后，chemprotsent数据集正确数量少了两个，CDR多了三个，所以可以看到这个模块几乎没起作用。
 2. 审查发现是两个的best_epoch都出现了eval_compression_ratio = 0.0
 3. 这意味着固定阈值 selection_threshold=0.475 把边全筛掉了，所以现在试试不同的threshold。
+4. 现存都满了，算了，明天看看
+5. 看论文，结果看到一篇论文，结论就是微调比通用大模型好，我就知道当时这篇论文下面的生物学3区的不是什么好预兆。。。
+
+不过学会了mermaid的语法：
+
+<div style="text-align: center; max-width: 400px; margin: 0 auto">
+
+```mermaid
+graph TD
+    vs["V.S."]
+
+    ft_head["Fine-tuning 路径"] -->
+    ft_step1["收集领域标注数据<br/>专家打标签很耗时"] -->
+    ft_step2["在专用数据上训练<br/>BioBERT, ClinicalT5 等"] -->
+    ft_step3["高性能输出<br/>F1 = 84~90"]
+
+    inf_head["Inference 路径 (GenAI)"] -->
+    inf_step1["直接使用pretraining模型<br/>无需标注数据"] -->
+    inf_step2["设计Prompt提问<br/>Mistral, LLaMA3, Gemma 等"] -->
+    inf_step3["性能明显更低<br/>F1 = 36~54"]
+
+    core_q["核心问题：LLM能可靠处理生物医学数据吗?"]
+
+    %% 连接关系
+    vs --> ft_head
+    vs --> inf_head
+
+    ft_step3 --> core_q
+    inf_step3 --> core_q
+
+    style ft_head fill:#4caf50,color:white
+```
+
+</div>
+
+## 2026-05-14
+
+1. host4的1号空闲，开始跑！
+2. 开了两个会话，一起跑，谢谢，因为1号剩余42g显存谢谢。
+
+## 2025-05-15
+
+1. cdr跑完了chem才到第二轮，一看发现是只分配了2.6g显存，谢非凡的实验一个人占了48g，谢谢。
+2. 其实大概看了一下估计有问题，anyway i could care less，还是等他跑完吧。
+
+## 2025-05-16
+
+1. 手写论文笔记太爽了

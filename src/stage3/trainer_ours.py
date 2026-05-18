@@ -173,6 +173,9 @@ def run_experiment(cfg: Dict) -> Dict:
         tau_anneal_rate=float(cfg.get("tau_anneal_rate", 0.95)),
         selection_threshold=float(cfg.get("selection_threshold", 0.5)),
         compression_loss_type=str(cfg.get("compression_loss_type", "l1")),
+        target_compression_ratio=cfg.get("target_compression_ratio"),
+        target_ratio_loss_weight=float(cfg.get("target_ratio_loss_weight", 1.0)),
+        readout_mode=str(cfg.get("readout_mode", "degree_pool")),
         dropout=float(cfg.get("dropout", 0.1)),
         freeze_pubmedbert=bool(cfg.get("freeze_pubmedbert", False)),
         model_dtype=model_dtype,
@@ -182,7 +185,8 @@ def run_experiment(cfg: Dict) -> Dict:
     print(f"[Run] model_dtype={next(model.parameters()).dtype}")
     print(
         f"[Run] beta={model.beta:g} tau={model.current_tau:.4f} "
-        f"threshold={model.gmib.selection_threshold:.3f}"
+        f"threshold={model.gmib.selection_threshold:.3f} "
+        f"readout={model.readout_mode}"
     )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(cfg.get("lr", 2e-5)))
@@ -198,7 +202,7 @@ def run_experiment(cfg: Dict) -> Dict:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run_meta = {
-        "model_type": "ours",
+        "model_type": str(cfg.get("model_type", "ours")),
         "dataset_name": cfg.get("dataset_name", ""),
         "seed": seed,
         "biobart_path": cfg["biobart_path"],
@@ -212,6 +216,9 @@ def run_experiment(cfg: Dict) -> Dict:
         "tau_anneal_rate": float(cfg.get("tau_anneal_rate", 0.95)),
         "selection_threshold": float(cfg.get("selection_threshold", 0.5)),
         "compression_loss_type": str(cfg.get("compression_loss_type", "l1")),
+        "target_compression_ratio": cfg.get("target_compression_ratio"),
+        "target_ratio_loss_weight": float(cfg.get("target_ratio_loss_weight", 1.0)),
+        "readout_mode": str(cfg.get("readout_mode", "degree_pool")),
     }
 
     metric_for_best = str(cfg.get("metric_for_best", "mapped_exact"))
@@ -236,6 +243,9 @@ def run_experiment(cfg: Dict) -> Dict:
         train_loss_sum = 0.0
         train_gen_loss_sum = 0.0
         train_compress_loss_sum = 0.0
+        train_base_compress_loss_sum = 0.0
+        train_target_ratio_loss_sum = 0.0
+        train_prob_compression_ratio_sum = 0.0
         train_retained_sum = 0.0
         train_compression_ratio_sum = 0.0
         train_steps = 0
@@ -256,6 +266,9 @@ def run_experiment(cfg: Dict) -> Dict:
             train_loss_sum += _tensor_item(outputs["loss"])
             train_gen_loss_sum += _tensor_item(outputs["gen_loss"])
             train_compress_loss_sum += _tensor_item(outputs["compress_loss"])
+            train_base_compress_loss_sum += _tensor_item(outputs["base_compress_loss"])
+            train_target_ratio_loss_sum += _tensor_item(outputs["target_ratio_loss"])
+            train_prob_compression_ratio_sum += _tensor_item(outputs["prob_compression_ratio"])
             train_retained_sum += _tensor_item(outputs["avg_retained_arcs"])
             train_compression_ratio_sum += _tensor_item(outputs["compression_ratio"])
             train_steps += 1
@@ -263,12 +276,17 @@ def run_experiment(cfg: Dict) -> Dict:
         avg_train_loss = train_loss_sum / max(train_steps, 1)
         avg_train_gen_loss = train_gen_loss_sum / max(train_steps, 1)
         avg_train_compress_loss = train_compress_loss_sum / max(train_steps, 1)
+        avg_train_base_compress_loss = train_base_compress_loss_sum / max(train_steps, 1)
+        avg_train_target_ratio_loss = train_target_ratio_loss_sum / max(train_steps, 1)
+        avg_train_prob_compression_ratio = train_prob_compression_ratio_sum / max(train_steps, 1)
         avg_train_retained = train_retained_sum / max(train_steps, 1)
         avg_train_compression_ratio = train_compression_ratio_sum / max(train_steps, 1)
         print(
             f"[Epoch {epoch}] train_loss={avg_train_loss:.6f} "
             f"gen_loss={avg_train_gen_loss:.6f} "
             f"compress_loss={avg_train_compress_loss:.6f} "
+            f"target_ratio_loss={avg_train_target_ratio_loss:.6f} "
+            f"prob_ratio={avg_train_prob_compression_ratio:.4f} "
             f"avg_retained_arcs={avg_train_retained:.4f} "
             f"compression_ratio={avg_train_compression_ratio:.4f} "
             f"tau={tau_used:.4f} steps={train_steps}"
@@ -278,6 +296,9 @@ def run_experiment(cfg: Dict) -> Dict:
         eval_loss_sum = 0.0
         eval_gen_loss_sum = 0.0
         eval_compress_loss_sum = 0.0
+        eval_base_compress_loss_sum = 0.0
+        eval_target_ratio_loss_sum = 0.0
+        eval_prob_compression_ratio_sum = 0.0
         eval_retained_sum = 0.0
         eval_compression_ratio_sum = 0.0
         eval_steps = 0
@@ -302,6 +323,9 @@ def run_experiment(cfg: Dict) -> Dict:
                 eval_loss_sum += _tensor_item(outputs["loss"])
                 eval_gen_loss_sum += _tensor_item(outputs["gen_loss"])
                 eval_compress_loss_sum += _tensor_item(outputs["compress_loss"])
+                eval_base_compress_loss_sum += _tensor_item(outputs["base_compress_loss"])
+                eval_target_ratio_loss_sum += _tensor_item(outputs["target_ratio_loss"])
+                eval_prob_compression_ratio_sum += _tensor_item(outputs["prob_compression_ratio"])
                 eval_retained_sum += _tensor_item(outputs["avg_retained_arcs"])
                 eval_compression_ratio_sum += _tensor_item(outputs["compression_ratio"])
                 eval_steps += 1
@@ -329,12 +353,17 @@ def run_experiment(cfg: Dict) -> Dict:
         avg_eval_loss = eval_loss_sum / max(eval_steps, 1)
         avg_eval_gen_loss = eval_gen_loss_sum / max(eval_steps, 1)
         avg_eval_compress_loss = eval_compress_loss_sum / max(eval_steps, 1)
+        avg_eval_base_compress_loss = eval_base_compress_loss_sum / max(eval_steps, 1)
+        avg_eval_target_ratio_loss = eval_target_ratio_loss_sum / max(eval_steps, 1)
+        avg_eval_prob_compression_ratio = eval_prob_compression_ratio_sum / max(eval_steps, 1)
         avg_eval_retained = eval_retained_sum / max(eval_steps, 1)
         avg_eval_compression_ratio = eval_compression_ratio_sum / max(eval_steps, 1)
         print(
             f"[Epoch {epoch}] eval_loss={avg_eval_loss:.6f} "
             f"gen_loss={avg_eval_gen_loss:.6f} "
             f"compress_loss={avg_eval_compress_loss:.6f} "
+            f"target_ratio_loss={avg_eval_target_ratio_loss:.6f} "
+            f"prob_ratio={avg_eval_prob_compression_ratio:.4f} "
             f"avg_retained_arcs={avg_eval_retained:.4f} "
             f"compression_ratio={avg_eval_compression_ratio:.4f} steps={eval_steps}"
         )
@@ -370,11 +399,17 @@ def run_experiment(cfg: Dict) -> Dict:
             "train_loss": avg_train_loss,
             "train_gen_loss": avg_train_gen_loss,
             "train_compress_loss": avg_train_compress_loss,
+            "train_base_compress_loss": avg_train_base_compress_loss,
+            "train_target_ratio_loss": avg_train_target_ratio_loss,
+            "train_prob_compression_ratio": avg_train_prob_compression_ratio,
             "train_avg_retained_arcs": avg_train_retained,
             "train_compression_ratio": avg_train_compression_ratio,
             "eval_loss": avg_eval_loss,
             "eval_gen_loss": avg_eval_gen_loss,
             "eval_compress_loss": avg_eval_compress_loss,
+            "eval_base_compress_loss": avg_eval_base_compress_loss,
+            "eval_target_ratio_loss": avg_eval_target_ratio_loss,
+            "eval_prob_compression_ratio": avg_eval_prob_compression_ratio,
             "eval_avg_retained_arcs": avg_eval_retained,
             "eval_compression_ratio": avg_eval_compression_ratio,
             "num_predictions": len(clean_preds),

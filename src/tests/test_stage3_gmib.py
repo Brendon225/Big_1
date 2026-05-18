@@ -60,7 +60,9 @@ gmib = GMIB(
     tau_min=0.2,
     tau_anneal_rate=0.5,
     selection_threshold=0.5,
-    compression_loss_type="l1",
+    compression_loss_type="target_ratio",
+    target_compression_ratio=0.5,
+    target_ratio_loss_weight=1.0,
 )
 
 gmib.train()
@@ -76,6 +78,8 @@ assert out["h_fused"].shape == (batch_size, node_count, fused_dim)
 assert out["p_ij"].shape == (batch_size, node_count, node_count)
 assert out["z_ij"].shape == (batch_size, node_count, node_count)
 assert out["compress_loss"].ndim == 0
+assert out["target_ratio_loss"].ndim == 0
+assert out["prob_compression_ratio"].ndim == 0
 assert float(out["p_ij"].min().item()) >= 0.0
 assert float(out["p_ij"].max().item()) <= 1.0
 assert float(out["z_ij"].min().item()) >= 0.0
