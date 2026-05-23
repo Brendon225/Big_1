@@ -255,6 +255,13 @@ def _save_json(payload: Dict | List[Dict], path: Path) -> None:
     )
 
 
+def _get_aux_metric(model: B345Model, key: str) -> Optional[float]:
+    value = getattr(model, "last_aux_metrics", {}).get(key)
+    if value is None:
+        return None
+    return float(value)
+
+
 def save_stage3_checkpoint(
     model: B345Model,
     generator_tokenizer,
@@ -400,6 +407,9 @@ def run_experiment(cfg: Dict) -> Dict:
     for epoch in range(1, epochs + 1):
         model.train()
         train_loss_sum = 0.0
+        train_gate_semantic_sum = 0.0
+        train_gate_syntax_sum = 0.0
+        train_gate_steps = 0
         train_steps = 0
 
         for step, raw_batch in enumerate(train_loader):
@@ -409,18 +419,36 @@ def run_experiment(cfg: Dict) -> Dict:
 
             outputs = model(batch, labels=batch["labels"])
             loss = outputs.loss
+            gate_semantic = _get_aux_metric(model, "gate_semantic_mean")
+            gate_syntax = _get_aux_metric(model, "gate_syntax_mean")
             loss.backward()
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
             train_loss_sum += float(loss.item())
+            if gate_semantic is not None and gate_syntax is not None:
+                train_gate_semantic_sum += gate_semantic
+                train_gate_syntax_sum += gate_syntax
+                train_gate_steps += 1
             train_steps += 1
 
         avg_train_loss = train_loss_sum / max(train_steps, 1)
-        print(f"[Epoch {epoch}] train_loss={avg_train_loss:.6f} steps={train_steps}")
+        avg_train_gate_semantic = train_gate_semantic_sum / max(train_gate_steps, 1)
+        avg_train_gate_syntax = train_gate_syntax_sum / max(train_gate_steps, 1)
+        if train_gate_steps > 0:
+            print(
+                f"[Epoch {epoch}] train_loss={avg_train_loss:.6f} "
+                f"gate_semantic={avg_train_gate_semantic:.4f} "
+                f"gate_syntax={avg_train_gate_syntax:.4f} steps={train_steps}"
+            )
+        else:
+            print(f"[Epoch {epoch}] train_loss={avg_train_loss:.6f} steps={train_steps}")
 
         model.eval()
         eval_loss_sum = 0.0
+        eval_gate_semantic_sum = 0.0
+        eval_gate_syntax_sum = 0.0
+        eval_gate_steps = 0
         eval_steps = 0
         clean_preds: List[str] = []
         clean_golds: List[str] = []
@@ -441,6 +469,12 @@ def run_experiment(cfg: Dict) -> Dict:
 
                 outputs = model(batch, labels=batch["labels"])
                 eval_loss_sum += float(outputs.loss.item())
+                gate_semantic = _get_aux_metric(model, "gate_semantic_mean")
+                gate_syntax = _get_aux_metric(model, "gate_syntax_mean")
+                if gate_semantic is not None and gate_syntax is not None:
+                    eval_gate_semantic_sum += gate_semantic
+                    eval_gate_syntax_sum += gate_syntax
+                    eval_gate_steps += 1
                 eval_steps += 1
 
                 preds = predict_labels_by_rerank(
@@ -464,7 +498,16 @@ def run_experiment(cfg: Dict) -> Dict:
                 )
 
         avg_eval_loss = eval_loss_sum / max(eval_steps, 1)
-        print(f"[Epoch {epoch}] eval_loss={avg_eval_loss:.6f} steps={eval_steps}")
+        avg_eval_gate_semantic = eval_gate_semantic_sum / max(eval_gate_steps, 1)
+        avg_eval_gate_syntax = eval_gate_syntax_sum / max(eval_gate_steps, 1)
+        if eval_gate_steps > 0:
+            print(
+                f"[Epoch {epoch}] eval_loss={avg_eval_loss:.6f} "
+                f"gate_semantic={avg_eval_gate_semantic:.4f} "
+                f"gate_syntax={avg_eval_gate_syntax:.4f} steps={eval_steps}"
+            )
+        else:
+            print(f"[Epoch {epoch}] eval_loss={avg_eval_loss:.6f} steps={eval_steps}")
 
         label_key_map = _build_label_key_map(candidate_labels)
         mapped_preds = [
@@ -503,6 +546,12 @@ def run_experiment(cfg: Dict) -> Dict:
             "mapped_exact": mapped_exact,
             "mapped_invalid_rate": mapped_invalid_rate,
         }
+        if train_gate_steps > 0:
+            last_metrics["train_gate_semantic_mean"] = avg_train_gate_semantic
+            last_metrics["train_gate_syntax_mean"] = avg_train_gate_syntax
+        if eval_gate_steps > 0:
+            last_metrics["eval_gate_semantic_mean"] = avg_eval_gate_semantic
+            last_metrics["eval_gate_syntax_mean"] = avg_eval_gate_syntax
 
         if metric_for_best not in last_metrics:
             raise ValueError(

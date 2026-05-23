@@ -1,10 +1,11 @@
 """
-B3/B4/B5 baseline model for Stage-3.
+B3/B4/B5/B7 baseline model for Stage-3.
 
 Model variants:
 - B3: syntax-only (Attentive GCN pooled vector injection)
 - B4: semantics-only (PubMedBERT CLS injection)
 - B5: dual-view concat (syntax + semantics) without IB
+- B7: gated dual-view fusion (adaptive semantic/syntax weighting)
 """
 
 from __future__ import annotations
@@ -18,11 +19,11 @@ from transformers import AutoModelForSeq2SeqLM
 from src.models.semantics_view import SemanticsView
 from src.models.syntax_view import SyntaxView
 
-SUPPORTED_B345_MODEL_TYPES = {"b3", "b4", "b5"}
+SUPPORTED_B345_MODEL_TYPES = {"b3", "b4", "b5", "b7"}
 
 
 class B345Model(nn.Module):
-    """Unified model for B3/B4/B5."""
+    """Unified model for B3/B4/B5/B7."""
 
     def __init__(
         self,
@@ -46,6 +47,7 @@ class B345Model(nn.Module):
                 f"Expected one of {sorted(SUPPORTED_B345_MODEL_TYPES)}."
             )
         self.model_type = model_type
+        self.last_aux_metrics: Dict[str, float] = {}
 
         self.generator = AutoModelForSeq2SeqLM.from_pretrained(
             biobart_path,
@@ -61,7 +63,7 @@ class B345Model(nn.Module):
         self.semantic_hidden_size = int(self.semantics_view.hidden_size)
 
         self.syntax_view: Optional[SyntaxView] = None
-        if self.model_type in {"b3", "b5"}:
+        if self.model_type in {"b3", "b5", "b7"}:
             self.syntax_view = SyntaxView(
                 input_dim=self.semantic_hidden_size,
                 hidden_dim=gcn_hidden_dim,
@@ -75,6 +77,7 @@ class B345Model(nn.Module):
         self.syn_proj = nn.Linear(gcn_hidden_dim, self.generator_hidden_size)
         self.sem_proj = nn.Linear(self.semantic_hidden_size, self.generator_hidden_size)
         self.dual_proj = nn.Linear(self.generator_hidden_size * 2, self.generator_hidden_size)
+        self.gate_proj = nn.Linear(self.generator_hidden_size * 2, self.generator_hidden_size)
         self.inject_norm = nn.LayerNorm(self.generator_hidden_size)
         self.inject_dropout = nn.Dropout(dropout)
 
@@ -85,6 +88,7 @@ class B345Model(nn.Module):
         return (node_repr * mask).sum(dim=1) / denom
 
     def _build_injection_vector(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        self.last_aux_metrics = {}
         h_sem, x_init = self.semantics_view(
             pubmedbert_input_ids=batch["pubmedbert_input_ids"],
             pubmedbert_attention_mask=batch["pubmedbert_attention_mask"],
@@ -112,6 +116,16 @@ class B345Model(nn.Module):
             return self.inject_dropout(self.inject_norm(syn_feat))
 
         sem_feat = self.sem_proj(h_sem)
+        if self.model_type == "b7":
+            gate_input = torch.cat([sem_feat, syn_feat], dim=-1)
+            semantic_gate = torch.sigmoid(self.gate_proj(gate_input))
+            feat = semantic_gate * sem_feat + (1.0 - semantic_gate) * syn_feat
+            self.last_aux_metrics = {
+                "gate_semantic_mean": float(semantic_gate.detach().mean().item()),
+                "gate_syntax_mean": float((1.0 - semantic_gate).detach().mean().item()),
+            }
+            return self.inject_dropout(self.inject_norm(feat))
+
         dual = torch.cat([syn_feat, sem_feat], dim=-1)
         feat = self.dual_proj(dual)
         return self.inject_dropout(self.inject_norm(feat))
