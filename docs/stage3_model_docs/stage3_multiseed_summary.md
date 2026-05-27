@@ -7,32 +7,32 @@ Rows marked `missing` indicate that the corresponding 5090 checkpoint has not be
 
 | dataset | model | n | mapped_exact_mean | mapped_exact_std | raw_exact_mean | eval_loss_mean |
 | --- | --- | --- | --- | --- | --- | --- |
-| CDRIntra | b4 | 1 | 0.769305 | 0.000000 | 0.769305 | 0.221137 |
-| CDRIntra | b5 | 1 | 0.775451 | 0.000000 | 0.775451 | 0.251782 |
-| CDRIntra | b7 | 1 | 0.769689 | 0.000000 | 0.769689 | 0.200311 |
-| ChemProtSent | b4 | 1 | 0.901083 | 0.000000 | 0.901083 | 0.084065 |
-| ChemProtSent | b5 | 1 | 0.896106 | 0.000000 | 0.896106 | 0.083922 |
-| ChemProtSent | b7 | 1 | 0.906583 | 0.000000 | 0.906583 | 0.056853 |
+| CDRIntra | b4 | 3 | 0.768472 | 0.005141 | 0.768472 | 0.242170 |
+| CDRIntra | b5 | 3 | 0.772314 | 0.007879 | 0.772314 | 0.250330 |
+| CDRIntra | b7 | 3 | 0.771226 | 0.002033 | 0.771226 | 0.162372 |
+| ChemProtSent | b4 | 3 | 0.896776 | 0.004412 | 0.896776 | 0.081550 |
+| ChemProtSent | b5 | 3 | 0.898493 | 0.002279 | 0.898493 | 0.081942 |
+| ChemProtSent | b7 | 3 | 0.901374 | 0.004559 | 0.901374 | 0.066236 |
 
 ## Per-Seed
 
 | dataset | model | seed | status | mapped_exact | raw_exact | eval_loss | epoch | gate_sem | gate_syn |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ChemProtSent | b4 | 42 | ok | 0.901083 | 0.901083 | 0.084065 | 9 |  |  |
-| ChemProtSent | b4 | 123 | missing |  |  |  |  |  |  |
-| ChemProtSent | b4 | 456 | missing |  |  |  |  |  |  |
+| ChemProtSent | b4 | 123 | ok | 0.892265 | 0.892265 | 0.072787 | 6 |  |  |
+| ChemProtSent | b4 | 456 | ok | 0.896979 | 0.896979 | 0.087798 | 8 |  |  |
 | ChemProtSent | b5 | 42 | ok | 0.896106 | 0.896106 | 0.083922 | 17 |  |  |
-| ChemProtSent | b5 | 123 | missing |  |  |  |  |  |  |
-| ChemProtSent | b5 | 456 | missing |  |  |  |  |  |  |
+| ChemProtSent | b5 | 123 | ok | 0.898725 | 0.898725 | 0.095842 | 15 |  |  |
+| ChemProtSent | b5 | 456 | ok | 0.900646 | 0.900646 | 0.066062 | 7 |  |  |
 | ChemProtSent | b7 | 42 | ok | 0.906583 | 0.906583 | 0.056853 | 4 | 0.520559 | 0.479441 |
-| ChemProtSent | b7 | 123 | missing |  |  |  |  |  |  |
-| ChemProtSent | b7 | 456 | missing |  |  |  |  |  |  |
+| ChemProtSent | b7 | 123 | ok | 0.898114 | 0.898114 | 0.076725 | 7 | 0.490535 | 0.509465 |
+| ChemProtSent | b7 | 456 | ok | 0.899424 | 0.899424 | 0.065131 | 4 | 0.481323 | 0.518677 |
 | CDRIntra | b4 | 42 | ok | 0.769305 | 0.769305 | 0.221137 | 16 |  |  |
-| CDRIntra | b4 | 123 | missing |  |  |  |  |  |  |
-| CDRIntra | b4 | 456 | missing |  |  |  |  |  |  |
+| CDRIntra | b4 | 123 | ok | 0.773146 | 0.773146 | 0.240048 | 14 |  |  |
+| CDRIntra | b4 | 456 | ok | 0.762966 | 0.762966 | 0.265324 | 19 |  |  |
 | CDRIntra | b5 | 42 | ok | 0.775451 | 0.775451 | 0.251782 | 14 |  |  |
-| CDRIntra | b5 | 123 | missing |  |  |  |  |  |  |
-| CDRIntra | b5 | 456 | missing |  |  |  |  |  |  |
+| CDRIntra | b5 | 123 | ok | 0.763350 | 0.763350 | 0.205088 | 9 |  |  |
+| CDRIntra | b5 | 456 | ok | 0.778141 | 0.778141 | 0.294121 | 11 |  |  |
 | CDRIntra | b7 | 42 | ok | 0.769689 | 0.769689 | 0.200311 | 9 | 0.506772 | 0.493229 |
-| CDRIntra | b7 | 123 | missing |  |  |  |  |  |  |
-| CDRIntra | b7 | 456 | missing |  |  |  |  |  |  |
+| CDRIntra | b7 | 123 | ok | 0.773531 | 0.773531 | 0.140109 | 6 | 0.497588 | 0.502412 |
+| CDRIntra | b7 | 456 | ok | 0.770457 | 0.770457 | 0.146697 | 7 | 0.510419 | 0.489581 |

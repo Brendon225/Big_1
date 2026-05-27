@@ -1,0 +1,1 @@
+{"id": "ChemProtSent_test_00000", "dataset": "ChemProtSent", "split": "test", "gold_label": "CPR:4", "raw_pred": "CPR:4", "mapped_pred": "CPR:4", "correct": true, "e1_text": "estramustine", "e2_text": "prostate-specific antigen", "dep_view_used": null, "dep_form_used": "none", "truncated": false}
