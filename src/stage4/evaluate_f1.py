@@ -247,7 +247,33 @@ def build_stage3_model(cfg: Dict, model_dir: Path, tokenizer, device: torch.devi
     state_path = model_dir / "stage3_model_state.pt"
     if state_path.exists():
         state = torch.load(state_path, map_location="cpu")
-        model.load_state_dict(state, strict=True)
+        load_result = model.load_state_dict(state, strict=False)
+        model_type = str(cfg["model_type"]).lower()
+        allowed_missing_prefixes = {
+            "b3": ("sem_proj.", "dual_proj.", "gate_proj."),
+            "b4": ("syntax_view.", "syn_proj.", "dual_proj.", "gate_proj."),
+            "b5": ("gate_proj.",),
+            "b7": ("dual_proj.",),
+        }.get(model_type, ())
+        unexpected = list(load_result.unexpected_keys)
+        missing = list(load_result.missing_keys)
+        disallowed_missing = [
+            key
+            for key in missing
+            if not any(key.startswith(prefix) for prefix in allowed_missing_prefixes)
+        ]
+        if unexpected or disallowed_missing:
+            raise RuntimeError(
+                "Incompatible Stage-3 checkpoint state. "
+                f"unexpected_keys={unexpected}; "
+                f"disallowed_missing_keys={disallowed_missing}; "
+                f"allowed_missing_keys={missing}"
+            )
+        if missing:
+            print(
+                "[Stage4] tolerated missing unused checkpoint keys: "
+                + ", ".join(missing)
+            )
     model.to(device)
     model.eval()
     return model

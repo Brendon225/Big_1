@@ -1,0 +1,32 @@
+{
+  "num_predictions": 1,
+  "num_positive_labels": 5,
+  "positive_labels": [
+    "CPR:3",
+    "CPR:4",
+    "CPR:5",
+    "CPR:6",
+    "CPR:9"
+  ],
+  "precision_excluding_no_relation": 1.0,
+  "recall_excluding_no_relation": 1.0,
+  "micro_f1_excluding_no_relation": 1.0,
+  "macro_f1_excluding_no_relation": 1.0,
+  "macro_f1_all_positive_labels": 0.2,
+  "raw_exact": 1.0,
+  "mapped_exact": 1.0,
+  "invalid_rate": 0.0,
+  "mapped_invalid_rate": 0.0,
+  "micro_tp": 1,
+  "micro_fp": 0,
+  "micro_fn": 0,
+  "model_family": "stage3",
+  "model_type": "b5",
+  "dataset_name": "ChemProtSent",
+  "seed": 42,
+  "split": "test",
+  "eval_file": "data/experiment_views/coarsened/ChemProtSent_test.json",
+  "checkpoint_dir": "checkpoints/stage3_full_b5_chemprotsent_seed42",
+  "eval_loss": 0.00036790096783079207,
+  "eval_steps": 1
+}
