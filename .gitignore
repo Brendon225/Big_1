@@ -36,3 +36,7 @@ checkpoints/
 models/*
 *.safetensors
 !models/.gitkeep
+
+# 6. 模型output
+
+outputs
