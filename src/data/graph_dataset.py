@@ -39,7 +39,10 @@ class BioREGraphDataset(BioREDataset):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.graph_builder = GraphBuilder.from_vocab_path(dep_type_vocab_path)
+        self.graph_builder = GraphBuilder.from_vocab_path(
+            dep_type_vocab_path,
+            dep_view=self.dep_view,
+        )
 
     def _build_semantics_text(self, raw: Dict) -> str:
         full_tokens = raw.get("tokens", [])
@@ -98,6 +101,7 @@ class BioREGraphDataset(BioREDataset):
                 "node_char_spans": graph_features.node_char_spans,
                 "semantics_text": semantics_text,
                 "raw_sentence": raw.get("sentence", ""),
+                "graph_view_used": self.dep_view,
             }
         )
         return text_sample

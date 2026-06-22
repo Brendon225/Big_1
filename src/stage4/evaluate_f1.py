@@ -364,6 +364,7 @@ def evaluate_stage3(
                         "e2_text": meta.get("e2_text", ""),
                         "dep_view_used": meta.get("dep_view_used"),
                         "dep_form_used": meta.get("dep_form_used"),
+                        "graph_view_used": meta.get("graph_view_used"),
                         "truncated": meta.get("truncated", False),
                     }
                 )

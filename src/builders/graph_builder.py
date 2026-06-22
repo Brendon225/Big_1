@@ -1,10 +1,13 @@
 """
-Build graph-side tensors from coarsened JSONL records.
+Build graph-side tensors from JSONL records.
 
 This module is intentionally model-agnostic. It only converts one record into:
 - adjacency matrix;
 - dependency-type id matrix;
 - node-level metadata (entity node indices, node char spans).
+
+Both raw and entity-coarsened dependency views are supported so that Stage-3
+models can run a clean raw-graph vs coarse-graph ablation.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 
 PAD_LABEL = "<PAD>"
 UNK_LABEL = "<UNK>"
+SUPPORTED_GRAPH_VIEWS = {"raw", "coarse"}
 
 
 @dataclass(frozen=True)
@@ -151,39 +155,108 @@ def compute_coarse_node_char_spans(record: Dict) -> List[Tuple[int, int]]:
     return spans
 
 
+def compute_raw_node_char_spans(record: Dict) -> List[Tuple[int, int]]:
+    """
+    Compute character spans for raw dependency nodes.
+
+    Raw graph nodes correspond to parser tokens. Spans are recovered by
+    left-to-right string matching against the sentence, matching the existing
+    coarse-node alignment convention.
+    """
+    sentence = str(record.get("sentence", ""))
+    tokens = list(record.get("tokens", []))
+
+    spans: List[Tuple[int, int]] = []
+    cursor = 0
+    for token_text in tokens:
+        span = _find_span(sentence, str(token_text), cursor)
+        if span[0] >= 0 and span[1] >= span[0]:
+            cursor = max(cursor, span[1])
+        spans.append(span)
+
+    return spans
+
+
+def compute_node_char_spans(record: Dict, dep_view: str) -> List[Tuple[int, int]]:
+    """Compute node character spans for the selected dependency graph view."""
+    if dep_view == "raw":
+        return compute_raw_node_char_spans(record)
+    if dep_view == "coarse":
+        return compute_coarse_node_char_spans(record)
+    raise ValueError(
+        f"Unsupported dep_view={dep_view!r}. "
+        f"Expected one of {sorted(SUPPORTED_GRAPH_VIEWS)}."
+    )
+
+
 class GraphBuilder:
     """
-    Build graph features from one coarsened record.
+    Build graph features from one record.
 
-    Input fields expected:
+    Input fields expected for dep_view="raw":
+    - tokens / dep_heads / dep_labels
+    - entity1.start_tok / entity2.start_tok
+
+    Input fields expected for dep_view="coarse":
     - coarse_tokens / coarse_heads / coarse_labels
     - coarse_e1_idx / coarse_e2_idx
     """
 
-    def __init__(self, dep_type_vocab: Dict[str, int]):
+    def __init__(self, dep_type_vocab: Dict[str, int], dep_view: str = "coarse"):
         if PAD_LABEL not in dep_type_vocab or UNK_LABEL not in dep_type_vocab:
             raise ValueError("dep_type_vocab must contain <PAD> and <UNK>.")
+        dep_view = str(dep_view).lower()
+        if dep_view not in SUPPORTED_GRAPH_VIEWS:
+            raise ValueError(
+                f"Unsupported dep_view={dep_view!r}. "
+                f"Expected one of {sorted(SUPPORTED_GRAPH_VIEWS)}."
+            )
         self.dep_type_vocab = dep_type_vocab
         self.pad_id = dep_type_vocab[PAD_LABEL]
         self.unk_id = dep_type_vocab[UNK_LABEL]
+        self.dep_view = dep_view
 
     @classmethod
-    def from_vocab_path(cls, vocab_path: str | Path) -> "GraphBuilder":
-        return cls(load_dep_type_vocab(vocab_path))
+    def from_vocab_path(cls, vocab_path: str | Path, dep_view: str = "coarse") -> "GraphBuilder":
+        return cls(load_dep_type_vocab(vocab_path), dep_view=dep_view)
 
     def _dep_label_to_id(self, label: str) -> int:
         return self.dep_type_vocab.get(str(label), self.unk_id)
 
-    def build_from_record(self, record: Dict) -> GraphFeatures:
-        coarse_tokens = list(record.get("coarse_tokens", []))
-        coarse_heads = list(record.get("coarse_heads", []))
-        coarse_labels = list(record.get("coarse_labels", []))
+    @staticmethod
+    def _select_graph_fields(record: Dict, dep_view: str) -> Tuple[List, List, List, int, int]:
+        if dep_view == "raw":
+            tokens = list(record.get("tokens", []))
+            heads = list(record.get("dep_heads", []))
+            labels = list(record.get("dep_labels", []))
+            entity1 = record.get("entity1", {}) or {}
+            entity2 = record.get("entity2", {}) or {}
+            e1_idx = _as_int(entity1.get("start_tok"), default=-1)
+            e2_idx = _as_int(entity2.get("start_tok"), default=-1)
+            return tokens, heads, labels, e1_idx, e2_idx
 
-        node_count = len(coarse_tokens)
-        if len(coarse_heads) != node_count or len(coarse_labels) != node_count:
+        if dep_view == "coarse":
+            tokens = list(record.get("coarse_tokens", []))
+            heads = list(record.get("coarse_heads", []))
+            labels = list(record.get("coarse_labels", []))
+            e1_idx = _as_int(record.get("coarse_e1_idx"), default=-1)
+            e2_idx = _as_int(record.get("coarse_e2_idx"), default=-1)
+            return tokens, heads, labels, e1_idx, e2_idx
+
+        raise ValueError(
+            f"Unsupported dep_view={dep_view!r}. "
+            f"Expected one of {sorted(SUPPORTED_GRAPH_VIEWS)}."
+        )
+
+    def build_from_record(self, record: Dict, dep_view: str | None = None) -> GraphFeatures:
+        dep_view = self.dep_view if dep_view is None else str(dep_view).lower()
+        tokens, heads, labels, e1_idx, e2_idx = self._select_graph_fields(record, dep_view)
+
+        node_count = len(tokens)
+        if len(heads) != node_count or len(labels) != node_count:
             raise ValueError(
-                "coarse_tokens/coarse_heads/coarse_labels length mismatch "
-                f"(tokens={node_count}, heads={len(coarse_heads)}, labels={len(coarse_labels)})"
+                f"{dep_view} graph field length mismatch "
+                f"(tokens={node_count}, heads={len(heads)}, labels={len(labels)})"
             )
 
         adj_matrix = [[0 for _ in range(node_count)] for _ in range(node_count)]
@@ -192,28 +265,30 @@ class GraphBuilder:
         ]
 
         for dep_idx in range(node_count):
-            head_idx = _as_int(coarse_heads[dep_idx], default=-1)
+            head_idx = _as_int(heads[dep_idx], default=-1)
             if head_idx < 0 or head_idx >= node_count:
                 continue
             if head_idx == dep_idx:
                 # Skip ROOT/self-loop.
                 continue
 
-            label_id = self._dep_label_to_id(coarse_labels[dep_idx])
+            label_id = self._dep_label_to_id(labels[dep_idx])
 
             adj_matrix[head_idx][dep_idx] = 1
             adj_matrix[dep_idx][head_idx] = 1
             dep_type_ids[head_idx][dep_idx] = label_id
             dep_type_ids[dep_idx][head_idx] = label_id
 
-        e1_idx = _as_int(record.get("coarse_e1_idx"), default=-1)
-        e2_idx = _as_int(record.get("coarse_e2_idx"), default=-1)
         if not (0 <= e1_idx < node_count):
-            raise ValueError(f"Invalid coarse_e1_idx={e1_idx} for node_count={node_count}")
+            raise ValueError(
+                f"Invalid {dep_view} e1_node_idx={e1_idx} for node_count={node_count}"
+            )
         if not (0 <= e2_idx < node_count):
-            raise ValueError(f"Invalid coarse_e2_idx={e2_idx} for node_count={node_count}")
+            raise ValueError(
+                f"Invalid {dep_view} e2_node_idx={e2_idx} for node_count={node_count}"
+            )
 
-        node_char_spans = compute_coarse_node_char_spans(record)
+        node_char_spans = compute_node_char_spans(record, dep_view=dep_view)
         if len(node_char_spans) != node_count:
             raise ValueError("node_char_spans length mismatch with node_count.")
 

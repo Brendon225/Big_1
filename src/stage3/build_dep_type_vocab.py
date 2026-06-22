@@ -41,8 +41,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--labels_key",
         type=str,
-        default="coarse_labels",
-        help="Record field name that stores dependency labels.",
+        default=None,
+        help=(
+            "Record field name that stores dependency labels. "
+            "Defaults to dep_labels for --dep_view raw and coarse_labels for --dep_view coarse."
+        ),
+    )
+    parser.add_argument(
+        "--dep_view",
+        type=str,
+        choices=["raw", "coarse"],
+        default="coarse",
+        help="Dependency graph view used to choose the default labels field.",
     )
     return parser.parse_args()
 
@@ -55,13 +65,19 @@ def main() -> None:
         if not path.exists():
             raise FileNotFoundError(f"Input file not found: {path}")
 
+    labels_key = args.labels_key
+    if labels_key is None:
+        labels_key = "dep_labels" if args.dep_view == "raw" else "coarse_labels"
+
     vocab = build_dep_type_vocab(
         jsonl_paths=input_paths,
-        labels_key=args.labels_key,
+        labels_key=labels_key,
     )
     save_dep_type_vocab(vocab=vocab, path=args.output)
 
     print(f"[dep-vocab] saved: {args.output}")
+    print(f"[dep-vocab] dep_view: {args.dep_view}")
+    print(f"[dep-vocab] labels_key: {labels_key}")
     print(f"[dep-vocab] size: {len(vocab)}")
     print(f"[dep-vocab] sample: {list(vocab.items())[:10]}")
 

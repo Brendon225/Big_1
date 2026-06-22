@@ -40,3 +40,11 @@ models/*
 # 6. 模型output
 
 outputs
+
+# 7. 汇报
+
+docs/record
+
+# 8.论文
+
+DP_paper

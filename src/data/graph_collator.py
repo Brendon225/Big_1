@@ -147,6 +147,7 @@ class BioREGraphCollator:
                 "e2_text": sample["e2_text"],
                 "dep_view_used": sample.get("dep_view_used"),
                 "dep_form_used": sample.get("dep_form_used"),
+                "graph_view_used": sample.get("graph_view_used"),
                 "truncated": sample.get("truncated", False),
             }
             for sample in batch
